@@ -21,6 +21,7 @@ from lib.loss import Loss
 from lib.loss_refiner import Loss_refine
 from lib.transformations import euler_matrix, quaternion_matrix, quaternion_from_matrix
 from lib.knn.__init__ import KNearestNeighbor
+from PIL import Image, ImageDraw
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
@@ -43,7 +44,7 @@ refiner = PoseRefineNet(num_points = num_points, num_obj = num_objects)
 refiner.cuda()
 estimator.load_state_dict(torch.load(opt.model))
 refiner.load_state_dict(torch.load(opt.refine_model))
-estimator.eval()
+estimator.eval()  # 让model变成测试模式，这主要是对dropout和batch
 refiner.eval()
 
 testdataset = PoseDataset_linemod('eval', num_points, False, opt.dataset_root, 0.0, True)
@@ -51,6 +52,7 @@ testdataloader = torch.utils.data.DataLoader(testdataset, batch_size=1, shuffle=
 
 sym_list = testdataset.get_sym_list()
 num_points_mesh = testdataset.get_num_points_mesh()
+cx, cy, fx, fy = testdataset.get_camera_intrinsic()     # 相机参数
 criterion = Loss(num_points_mesh, sym_list)
 criterion_refine = Loss_refine(num_points_mesh, sym_list)
 
@@ -66,7 +68,7 @@ num_count = [0 for i in range(num_objects)]
 fw = open('{0}/eval_result_logs.txt'.format(output_result_dir), 'w')
 
 for i, data in enumerate(testdataloader, 0):
-    points, choose, img, target, model_points, idx = data
+    points, choose, img, target, model_points, idx, origin_img = data
     if len(points.size()) == 2:
         print('No.{0} NOT Pass! Lost detection!'.format(i))
         fw.write('No.{0} NOT Pass! Lost detection!\n'.format(i))
@@ -81,18 +83,18 @@ for i, data in enumerate(testdataloader, 0):
     pred_r, pred_t, pred_c, emb = estimator(img, points, choose, idx)
     pred_r = pred_r / torch.norm(pred_r, dim=2).view(1, num_points, 1)
     pred_c = pred_c.view(bs, num_points)
-    how_max, which_max = torch.max(pred_c, 1)
+    how_max, which_max = torch.max(pred_c, 1)       # 每个点的预测，找最大的
     pred_t = pred_t.view(bs * num_points, 1, 3)
 
     my_r = pred_r[0][which_max[0]].view(-1).cpu().data.numpy()
     my_t = (points.view(bs * num_points, 1, 3) + pred_t)[which_max[0]].view(-1).cpu().data.numpy()
-    my_pred = np.append(my_r, my_t)
+    my_pred = np.append(my_r, my_t)     # 实际预测的
 
-    for ite in range(0, iteration):
+    for ite in range(0, iteration):     # 迭代优化
         T = Variable(torch.from_numpy(my_t.astype(np.float32))).cuda().view(1, 3).repeat(num_points, 1).contiguous().view(1, num_points, 3)
-        my_mat = quaternion_matrix(my_r)
+        my_mat = quaternion_matrix(my_r)    # 从四元数返回齐次旋转矩阵
         R = Variable(torch.from_numpy(my_mat[:3, :3].astype(np.float32))).cuda().view(1, 3, 3)
-        my_mat[0:3, 3] = my_t
+        my_mat[0:3, 3] = my_t       # 平移
         
         new_points = torch.bmm((points - T), R).contiguous()
         pred_r, pred_t = refiner(new_points, emb, idx)
@@ -106,7 +108,7 @@ for i, data in enumerate(testdataloader, 0):
         my_mat_final = np.dot(my_mat, my_mat_2)
         my_r_final = copy.deepcopy(my_mat_final)
         my_r_final[0:3, 3] = 0
-        my_r_final = quaternion_from_matrix(my_r_final, True)
+        my_r_final = quaternion_from_matrix(my_r_final, True)       # 存为四元数
         my_t_final = np.array([my_mat_final[0][3], my_mat_final[1][3], my_mat_final[2][3]])
 
         my_pred = np.append(my_r_final, my_t_final)
@@ -117,10 +119,30 @@ for i, data in enumerate(testdataloader, 0):
 
     model_points = model_points[0].cpu().detach().numpy()
     my_r = quaternion_matrix(my_r)[:3, :3]
-    pred = np.dot(model_points, my_r.T) + my_t
-    target = target[0].cpu().detach().numpy()
+    pred = np.dot(model_points, my_r.T) + my_t      # 旋转后的点云
+    target = target[0].cpu().detach().numpy()       # 目标点云
 
-    if idx[0].item() in sym_list:
+    print(pred.size)
+    input()
+    # 点云投影， pred是旋转并平移过的，是在相机坐标系下的坐标。只需要投影到像素坐标系
+    Tx = my_t[0]
+    Ty = my_t[1]
+    Tz = my_t[2]
+
+    cx = fx * Tx / Tz + cx      # 需要知道pred的size
+    cy = fy * Tx / Tz + cy
+
+    # 画在图像上
+    draw = ImageDraw.Draw(origin_img)
+    draw.point((x,y),fill=128)  # 将前面的点画出来
+    del draw
+
+    # 保存图像
+    f = open('test.png', 'wb')
+    origin_img.save(f, 'png')
+    f.close()
+
+    if idx[0].item() in sym_list:       # 如果是对称的 SLoss
         pred = torch.from_numpy(pred.astype(np.float32)).cuda().transpose(1, 0).contiguous()
         target = torch.from_numpy(target.astype(np.float32)).cuda().transpose(1, 0).contiguous()
         inds = knn(target.unsqueeze(0), pred.unsqueeze(0))

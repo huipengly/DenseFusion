@@ -148,7 +148,7 @@ class PoseDataset(data.Dataset):
         cam_scale = 1.0
         pt2 = depth_masked / cam_scale
         pt0 = (ymap_masked - self.cam_cx) * pt2 / self.cam_fx
-        pt1 = (xmap_masked - self.cam_cy) * pt2 / self.cam_fy
+        pt1 = (xmap_masked - self.cam_cy) * pt2 / self.cam_fy       # point的xyz
         cloud = np.concatenate((pt0, pt1, pt2), axis=1)
         cloud = np.add(cloud, -1.0 * target_t) / 1000.0
         cloud = np.add(cloud, target_t / 1000.0)
@@ -189,7 +189,8 @@ class PoseDataset(data.Dataset):
                self.norm(torch.from_numpy(img_masked.astype(np.float32))), \
                torch.from_numpy(target.astype(np.float32)), \
                torch.from_numpy(model_points.astype(np.float32)), \
-               torch.LongTensor([self.objlist.index(obj)])
+               torch.LongTensor([self.objlist.index(obj)]), \
+               img
 
     def __len__(self):
         return self.length
@@ -203,6 +204,8 @@ class PoseDataset(data.Dataset):
         else:
             return self.num_pt_mesh_small
 
+    def get_camera_intrinsic(self):
+        return self.cam_cx, self.cam_cy, self.cam_fx, self.cam_fy
 
 
 border_list = [-1, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600, 640, 680]
