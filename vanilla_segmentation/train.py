@@ -38,9 +38,9 @@ if __name__ == '__main__':
     random.seed(opt.manualSeed)
     torch.manual_seed(opt.manualSeed)
 
-    dataset = SegDataset(opt.dataset_root, '../datasets/ycb/dataset_config/train_data_list.txt', True)
+    dataset = SegDataset(opt.dataset_root, '../datasets/ycb/dataset_config/train_data_list.txt', True, 1)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=opt.batch_size, shuffle=True, num_workers=int(opt.workers))
-    test_dataset = SegDataset(opt.dataset_root, '../datasets/ycb/dataset_config/test_data_list.txt', False)
+    test_dataset = SegDataset(opt.dataset_root, '../datasets/ycb/dataset_config/test_data_list.txt', False, 1000)
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=int(opt.workers))
 
     print(len(dataset), len(test_dataset))
@@ -60,47 +60,53 @@ if __name__ == '__main__':
     st_time = time.time()
 
     for epoch in range(1, opt.n_epochs):
-        model.train()
-        train_all_cost = 0.0
-        train_time = 0
-        logger = setup_logger('epoch%d' % epoch, os.path.join(opt.log_dir, 'epoch_%d_log.txt' % epoch))
-        logger.info('Train time {0}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)) + ', ' + 'Training started'))
-
-        for i, data in enumerate(dataloader, 0):
-            rgb, target = data
-            rgb, target = Variable(rgb).cuda(), Variable(target).cuda()
-            semantic = model(rgb)
-            optimizer.zero_grad()
-            semantic_loss = criterion(semantic, target)
-            train_all_cost += semantic_loss.item()
-            semantic_loss.backward()
-            optimizer.step()
-            logger.info('Train time {0} Batch {1} CEloss {2}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)), train_time, semantic_loss.item()))
-            if train_time != 0 and train_time % 1000 == 0:
-                torch.save(model.state_dict(), os.path.join(opt.model_save_path, 'model_current.pth'))
-            train_time += 1
-
-        train_all_cost = train_all_cost / train_time
-        logger.info('Train Finish Avg CEloss: {0}'.format(train_all_cost))
+        # model.train()
+        # train_all_cost = 0.0
+        # train_time = 0
+        # logger = setup_logger('epoch%d' % epoch, os.path.join(opt.log_dir, 'epoch_%d_log.txt' % epoch))
+        # logger.info('Train time {0}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)) + ', ' + 'Training started'))
+        #
+        # for i, data in enumerate(dataloader, 0):
+        #     rgb, target = data
+        #     rgb, target = Variable(rgb).cuda(), Variable(target).cuda()
+        #     semantic = model(rgb)
+        #     optimizer.zero_grad()
+        #     semantic_loss = criterion(semantic, target)
+        #     train_all_cost += semantic_loss.item()
+        #     semantic_loss.backward()
+        #     optimizer.step()
+        #     logger.info('Train time {0} Batch {1} CEloss {2}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)), train_time, semantic_loss.item()))
+        #     if train_time != 0 and train_time % 1000 == 0:
+        #         torch.save(model.state_dict(), os.path.join(opt.model_save_path, 'model_current.pth'))
+        #     train_time += 1
+        #
+        # train_all_cost = train_all_cost / train_time
+        # logger.info('Train Finish Avg CEloss: {0}'.format(train_all_cost))
         
         model.eval()
-        test_all_cost = 0.0
+        # test_all_cost = 0.0
         test_time = 0
-        logger = setup_logger('epoch%d_test' % epoch, os.path.join(opt.log_dir, 'epoch_%d_test_log.txt' % epoch))
-        logger.info('Test time {0}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)) + ', ' + 'Testing started'))
+        # logger = setup_logger('epoch%d_test' % epoch, os.path.join(opt.log_dir, 'epoch_%d_test_log.txt' % epoch))
+        # logger.info('Test time {0}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)) + ', ' + 'Testing started'))
         for j, data in enumerate(test_dataloader, 0):
-            rgb, target = data
+            rgb, target, real_rgb = data
+            # Image.fromarray(real_rgb.numpy()[0], mode='RGB').save('img/%04d_rgb.png' % j)
+            Image.fromarray(target.numpy().astype(np.int8)[0], mode='L').save('img/%04d_true_label.png' % j)
             rgb, target = Variable(rgb).cuda(), Variable(target).cuda()
             semantic = model(rgb)
-            semantic_loss = criterion(semantic, target)
-            test_all_cost += semantic_loss.item()
+            # semantic_loss = criterion(semantic, target)
+            # test_all_cost += semantic_loss.item()
             test_time += 1
-            logger.info('Test time {0} Batch {1} CEloss {2}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)), test_time, semantic_loss.item()))
+            # logger.info('Test time {0} Batch {1} CEloss {2}'.format(time.strftime("%Hh %Mm %Ss", time.gmtime(time.time() - st_time)), test_time, semantic_loss.item()))
+            _, predicted = torch.max(semantic, 1)
+            predicted = predicted.cpu()
+            Image.fromarray(predicted.numpy().astype(np.int8)[0], mode='L').save('img/%04d_pre_label.png' % j)
 
-        test_all_cost = test_all_cost / test_time
-        logger.info('Test Finish Avg CEloss: {0}'.format(test_all_cost))
 
-        if test_all_cost <= best_val_cost:
-            best_val_cost = test_all_cost
-            torch.save(model.state_dict(), os.path.join(opt.model_save_path, 'model_{}_{}.pth'.format(epoch, test_all_cost)))
-            print('----------->BEST SAVED<-----------')
+        # test_all_cost = test_all_cost / test_time
+        # logger.info('Test Finish Avg CEloss: {0}'.format(test_all_cost))
+
+        # if test_all_cost <= best_val_cost:
+        #     best_val_cost = test_all_cost
+        #     torch.save(model.state_dict(), os.path.join(opt.model_save_path, 'model_{}_{}.pth'.format(epoch, test_all_cost)))
+        #     print('----------->BEST SAVED<-----------')
