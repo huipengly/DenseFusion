@@ -22,7 +22,8 @@ import yaml
 
 class PoseDataset(data.Dataset):
     def __init__(self, mode, num, add_noise, root, noise_trans, refine):
-        self.objlist = [1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]
+        self.objlist = [1]
+        # self.objlist = [1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]
         self.mode = mode
 
         self.list_rgb = []
@@ -89,6 +90,7 @@ class PoseDataset(data.Dataset):
     def __getitem__(self, index):
         img = Image.open(self.list_rgb[index])
         ori_img = np.array(img)
+        # ori_img = img.copy
         depth = np.array(Image.open(self.list_depth[index]))
         label = np.array(Image.open(self.list_label[index]))
         obj = self.list_obj[index]
@@ -190,7 +192,7 @@ class PoseDataset(data.Dataset):
                torch.from_numpy(target.astype(np.float32)), \
                torch.from_numpy(model_points.astype(np.float32)), \
                torch.LongTensor([self.objlist.index(obj)]), \
-               img
+               ori_img
 
     def __len__(self):
         return self.length

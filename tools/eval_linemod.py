@@ -27,10 +27,23 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
 parser.add_argument('--model', type=str, default = '',  help='resume PoseNet model')
 parser.add_argument('--refine_model', type=str, default = '',  help='resume PoseRefineNet model')
+parser.add_argument('--save_processed_image', type=bool, default = False,  help='Save image with model points')
 opt = parser.parse_args()
 
+# 投影点
+def projection(my_t, cx, cy):
+    Tx = my_t[0]
+    Ty = my_t[1]
+    Tz = my_t[2]
+    x = fx * Tx / Tz + cx      # 需要知道pred的size(1500, 3)
+    y = fy * Ty / Tz + cy
+    return int(x), int(y)
+
+
+# num_objects = 13
+# objlist = [1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]
 num_objects = 13
-objlist = [1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15]
+objlist = [1]
 num_points = 500
 iteration = 2
 bs = 1
@@ -122,25 +135,19 @@ for i, data in enumerate(testdataloader, 0):
     pred = np.dot(model_points, my_r.T) + my_t      # 旋转后的点云
     target = target[0].cpu().detach().numpy()       # 目标点云
 
-    print(pred.size)
-    input()
-    # 点云投影， pred是旋转并平移过的，是在相机坐标系下的坐标。只需要投影到像素坐标系
-    Tx = my_t[0]
-    Ty = my_t[1]
-    Tz = my_t[2]
+    if opt.save_processed_image:
+        # 绘制模型的点在二维图上
+        origin_img = Image.fromarray(origin_img.numpy()[0], mode='RGB')
+        for my_t in pred:
+            x, y = projection(my_t, cx, cy)
+            origin_img.putpixel((x, y), (255, 0, 0))
 
-    cx = fx * Tx / Tz + cx      # 需要知道pred的size
-    cy = fy * Tx / Tz + cy
-
-    # 画在图像上
-    draw = ImageDraw.Draw(origin_img)
-    draw.point((x,y),fill=128)  # 将前面的点画出来
-    del draw
-
-    # 保存图像
-    f = open('test.png', 'wb')
-    origin_img.save(f, 'png')
-    f.close()
+        # 保存图像
+        # f = open('test.png', 'wb')
+        f = open('{0}/processed_data/{1}.png'.format(opt.dataset_root.root, '%02d' % idx , '%04d' % i), 'wb')
+        origin_img.save(f, 'png')
+        f.close()
+        input()
 
     if idx[0].item() in sym_list:       # 如果是对称的 SLoss
         pred = torch.from_numpy(pred.astype(np.float32)).cuda().transpose(1, 0).contiguous()
