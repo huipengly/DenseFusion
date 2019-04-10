@@ -52,6 +52,10 @@ dataset_config_dir = 'datasets/ycb/dataset_config'
 ycb_toolbox_dir = 'YCB_Video_toolbox'
 result_wo_refine_dir = 'experiments/eval_result/ycb/Densefusion_wo_refine_result'
 result_refine_dir = 'experiments/eval_result/ycb/Densefusion_iterative_result'
+colors = [0xC0C0C0, 0x708069, 0xFFFFFF, 0xFAEBD7, 0xF0FFFF, 0xFFFFCD, 0xFF0000,
+          0x9C661F, 0x872657, 0xFFC0CB, 0xFF4500, 0xFF00FF, 0xFFFF00, 0x802A2A,
+          0x0000FF, 0x03A89E, 0x00FFFF, 0x00FF00, 0xA020F0, 0x00FF7F, 0xDA70D6,
+          0xDDA0DD]
 
 
 def projection(point, cx, cy, fx, fy):
@@ -60,6 +64,10 @@ def projection(point, cx, cy, fx, fy):
     tz = point[2] * cam_scale
     x = fx * tx / tz + cx
     y = fy * ty / tz + cy
+    if x < 0 or x > img_length:
+        x = 0
+    if y < 0 or y > img_width:
+        y = 0
     return int(x), int(y)
 
 
@@ -252,7 +260,7 @@ for now in range(0, 2949):
 
             for my_t in pred:
                 x, y = projection(my_t, cam_cx, cam_cy, cam_fx, cam_fy)
-                output_img.putpixel((x, y), (255, 0, 0))
+                output_img.putpixel((x, y), colors[int(itemid)])
 
 
         except ZeroDivisionError:
@@ -260,7 +268,9 @@ for now in range(0, 2949):
             my_result_wo_refine.append([0.0 for i in range(7)])
             my_result.append([0.0 for i in range(7)])
 
+
     output_img.save('img/%4d_projected_rgb.png' % now)
+
     scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
     scio.savemat('{0}/{1}.mat'.format(result_refine_dir, '%04d' % now), {'poses':my_result})
     print("Finish No.{0} keyframe".format(now))
