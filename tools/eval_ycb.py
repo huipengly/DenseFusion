@@ -28,6 +28,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
 parser.add_argument('--model', type=str, default = '',  help='resume PoseNet model')
 parser.add_argument('--refine_model', type=str, default = '',  help='resume PoseRefineNet model')
+parser.add_argument('--seg_model', type=str, default = '',  help='resume SegNet model')
+parser.add_argument('--save_processed_image', type=bool, default = False,  help='Save image with model points')
 opt = parser.parse_args()
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -50,6 +52,16 @@ dataset_config_dir = 'datasets/ycb/dataset_config'
 ycb_toolbox_dir = 'YCB_Video_toolbox'
 result_wo_refine_dir = 'experiments/eval_result/ycb/Densefusion_wo_refine_result'
 result_refine_dir = 'experiments/eval_result/ycb/Densefusion_iterative_result'
+
+
+def projection(point, cx, cy, fx, fy):
+    tx = point[0] * cam_scale
+    ty = point[1] * cam_scale
+    tz = point[2] * cam_scale
+    x = fx * tx / tz + cx
+    y = fy * ty / tz + cy
+    return int(x), int(y)
+
 
 def get_bbox(posecnn_rois):
     rmin = int(posecnn_rois[idx][3]) + 1
@@ -135,6 +147,7 @@ while 1:
 
 for now in range(0, 2949):
     img = Image.open('{0}/{1}-color.png'.format(opt.dataset_root, testlist[now]))
+    output_img = copy.deepcopy(img)  # 投影过后的图片
     depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
     posecnn_meta = scio.loadmat('{0}/results_PoseCNN_RSS2018/{1}.mat'.format(ycb_toolbox_dir, '%06d' % now))
     label = np.array(posecnn_meta['labels'])
@@ -231,11 +244,23 @@ for now in range(0, 2949):
             # Here 'my_pred' is the final pose estimation result after refinement ('my_r': quaternion, 'my_t': translation)
 
             my_result.append(my_pred.tolist())
+
+            # model_points = cloud[0].cpu().numpy()
+            my_r = quaternion_matrix(my_r)[:3, :3]
+            aa = cld[itemid]
+            pred = np.dot(cld[itemid], my_r.T) + my_t  # 旋转后的点云
+
+            for my_t in pred:
+                x, y = projection(my_t, cam_cx, cam_cy, cam_fx, cam_fy)
+                output_img.putpixel((x, y), (255, 0, 0))
+
+
         except ZeroDivisionError:
             print("PoseCNN Detector Lost {0} at No.{1} keyframe".format(itemid, now))
             my_result_wo_refine.append([0.0 for i in range(7)])
             my_result.append([0.0 for i in range(7)])
 
+    output_img.save('img/%4d_projected_rgb.png' % now)
     scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
     scio.savemat('{0}/{1}.mat'.format(result_refine_dir, '%04d' % now), {'poses':my_result})
     print("Finish No.{0} keyframe".format(now))
