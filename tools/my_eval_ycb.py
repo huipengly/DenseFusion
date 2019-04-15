@@ -205,7 +205,7 @@ while 1:
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 trancolor = transforms.ColorJitter(0.2, 0.2, 0.2, 0.05)
-for now in range(0, 50):
+for now in range(0, 10):
     # 图片读取
     img = Image.open('{0}/{1}-color.png'.format(opt.dataset_root, testlist[now]))
     depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
@@ -224,8 +224,11 @@ for now in range(0, 50):
     lst = lst[lst.nonzero()]    # 去除0
 
     label_img = Image.fromarray(label, mode='L')
-    drawObject = ImageDraw.Draw(label_img)
-    drawObject.ink = 255
+    drawObject_label = ImageDraw.Draw(label_img)
+    drawObject_label.ink = 255
+
+    drawObject_point = ImageDraw.Draw(output_img)
+    drawObject_point.ink = 255
 
     # posecnn_meta = scio.loadmat('{0}/results_PoseCNN_RSS2018/{1}.mat'.format(ycb_toolbox_dir, '%06d' % now))
     # label = np.array(posecnn_meta['labels'])
@@ -250,11 +253,11 @@ for now in range(0, 50):
             # rmin, rmax, cmin, cmax = get_bbox(rmin, rmax, cmin, cmax)
 
             # label画bounding box
-            drawObject.line([cmin, rmin, cmax, rmin])
-            drawObject.line([cmin, rmin, cmin, rmax])
-            drawObject.line([cmax, rmax, cmin, rmax])
-            drawObject.line([cmax, rmax, cmax, rmin])
-            drawObject.text([cmin, rmin], label_strings[itemid])
+            drawObject_label.line([cmin, rmin, cmax, rmin])
+            drawObject_label.line([cmin, rmin, cmin, rmax])
+            drawObject_label.line([cmax, rmax, cmin, rmax])
+            drawObject_label.line([cmax, rmax, cmax, rmin])
+            drawObject_label.text([cmin, rmin], label_strings[itemid])
 
             mask_depth = ma.getmaskarray(ma.masked_not_equal(depth, 0))
             mask_label = ma.getmaskarray(ma.masked_equal(label, itemid))
@@ -344,7 +347,8 @@ for now in range(0, 50):
             my_r = quaternion_matrix(my_r)[:3, :3]
             pred = np.dot(cld[itemid], my_r.T) + my_t  # 旋转后的点云
 
-            if opt.save_processed_image and how_max.cpu().data > 0.05:
+            if opt.save_processed_image and how_max.cpu().data > 0.1:
+                drawObject_point.text([cmin, rmin], label_strings[itemid] + ' : ' + str(how_max.cpu().data.numpy()))
                 # 绘制模型的点在二维图上
                 for my_t in pred:
                     x, y = projection(my_t, cam_cx, cam_cy, cam_fx, cam_fy)
