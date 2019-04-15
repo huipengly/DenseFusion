@@ -67,6 +67,7 @@ label_strings = ['ground', 'master_chef_can', 'cracker_box', 'sugar_box', 'tomat
                  'bowl', 'mug', 'power_drill', 'wood_block', 'scissors', 'large_marker',
                  'large_clamp', 'extra_large_clamp', 'foam_brick']
 
+
 def projection(point, cx, cy, fx, fy):
     tx = point[0] * cam_scale
     ty = point[1] * cam_scale
@@ -204,7 +205,6 @@ while 1:
     class_id += 1
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-trancolor = transforms.ColorJitter(0.2, 0.2, 0.2, 0.05)
 # for now in range(0, 448):
 for now in range(0, 50):
     # 图片读取
@@ -213,13 +213,17 @@ for now in range(0, 50):
     output_img = copy.deepcopy(img)     # 投影过后的图片
 
     # 语义分割
-    rgb = np.array(trancolor(img).convert("RGB"))
+    rgb = np.array(img.convert("RGB"))
     rgb = np.transpose(rgb, (2, 0, 1))
     rgb = norm(torch.from_numpy(rgb.astype(np.float32)))
     rgb = Variable(rgb.unsqueeze(0)).cuda()     # segnet是按batch处理的，所以添加一个维度
-    seg_outputs = seg(rgb)
-    _, seg_predicted = torch.max(seg_outputs, 1)
-    label = seg_predicted.cpu().numpy().astype(np.int8)
+    seg_outputs = seg(rgb).cpu()
+    # _, seg_predicted = torch.max(seg_outputs, 1)
+    seg_softmax_out = F.softmax(seg_outputs, dim=1)    # softmax求概率，下面求出最大的概率，就是label。最大概率低于60%的认为是ground
+    seg_value, seg_predicted = torch.max(seg_softmax_out, 1)
+    seg_predicted[torch.lt(seg_value, 0.6)] = 0
+
+    label = seg_predicted.numpy().astype(np.int8)
     label = label.squeeze(0)        # 去除添加的维度
     lst = np.unique(label)      # 图片中有的类别
     lst = lst[lst.nonzero()]    # 去除0
@@ -265,7 +269,7 @@ for now in range(0, 50):
             mask = mask_label * mask_depth
 
             choose = mask[rmin:rmax, cmin:cmax].flatten().nonzero()[0]
-            if len(choose) / ((rmax - rmin) * (cmax - cmin)) > 0.4:
+            if len(choose) / ((rmax - rmin) * (cmax - cmin)) > 0.3:
                 if len(choose) > num_points:
                     c_mask = np.zeros(len(choose), dtype=int)
                     c_mask[:num_points] = 1
@@ -363,7 +367,8 @@ for now in range(0, 50):
             my_result_wo_refine.append([0.0 for i in range(7)])
             my_result.append([0.0 for i in range(7)])
 
-    label_img.save('img/%04d_pre_label.png' % now)
+    # label_img.save('img/%04d_pre_label.png' % now)
+    label_img.save('img/%04d_pre_label_softmax.png' % now)
     output_img.save('img/%04d_projected_rgb.png' % now)
 
     scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
