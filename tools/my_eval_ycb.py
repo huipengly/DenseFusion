@@ -269,6 +269,7 @@ for now in range(0, 50):
             mask = mask_label * mask_depth
 
             choose = mask[rmin:rmax, cmin:cmax].flatten().nonzero()[0]
+            # if True:
             if len(choose) / ((rmax - rmin) * (cmax - cmin)) > 0.3:
                 if len(choose) > num_points:
                     c_mask = np.zeros(len(choose), dtype=int)
@@ -356,7 +357,13 @@ for now in range(0, 50):
             pred = np.dot(cld[itemid], my_r.T) + my_t  # 旋转后的点云
 
             if opt.save_processed_image and how_max.cpu().data > 0.1:
-                drawObject_point.text([cmin, rmin], label_strings[itemid] + ' : ' + str(how_max.cpu().data.numpy()))
+            # if opt.save_processed_image:
+                drawObject_point.text([cmin, rmin], label_strings[itemid] + ' : ' + str(how_max.cpu().data.numpy())
+                                      , fill=colors[itemid])
+                drawObject_point.line([cmin, rmin, cmax, rmin], fill=colors[itemid])
+                drawObject_point.line([cmin, rmin, cmin, rmax], fill=colors[itemid])
+                drawObject_point.line([cmax, rmax, cmin, rmax], fill=colors[itemid])
+                drawObject_point.line([cmax, rmax, cmax, rmin], fill=colors[itemid])
                 # 绘制模型的点在二维图上
                 for my_t in pred:
                     x, y = projection(my_t, cam_cx, cam_cy, cam_fx, cam_fy)
@@ -369,7 +376,9 @@ for now in range(0, 50):
 
     # label_img.save('img/%04d_pre_label.png' % now)
     label_img.save('img/%04d_pre_label_softmax.png' % now)
-    output_img.save('img/%04d_projected_rgb.png' % now)
+    # output_img.save('img/%04d_projected_rgb.png' % now)
+    # output_img.save('img/%04d_projected_rgb_conf.png' % now)
+    output_img.save('img/%04d_projected_rgb_conf_percent.png' % now)
 
     scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
     scio.savemat('{0}/{1}.mat'.format(result_refine_dir, '%04d' % now), {'poses':my_result})
