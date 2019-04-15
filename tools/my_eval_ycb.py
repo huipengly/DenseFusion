@@ -24,6 +24,7 @@ from datasets.ycb.dataset import PoseDataset
 from lib.network import PoseNet, PoseRefineNet
 from lib.transformations import euler_matrix, quaternion_matrix, quaternion_from_matrix
 from vanilla_segmentation.segnet import SegNet as segnet
+from PIL import ImageDraw
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
@@ -39,8 +40,10 @@ xmap = np.array([[j for i in range(640)] for j in range(480)])
 ymap = np.array([[i for i in range(640)] for j in range(480)])
 cam_cx = 312.9869
 cam_cy = 241.3109
-cam_fx = 1066.778
-cam_fy = 1067.487
+cam_fx = 558.341390
+# cam_fx = 1066.778
+cam_fy = 558.387543
+# cam_fy = 1067.487
 cam_scale = 10000.0
 num_obj = 21
 img_width = 480
@@ -58,6 +61,11 @@ colors = [0xC0C0C0, 0x708069, 0xFFFFFF, 0xFAEBD7, 0xF0FFFF, 0xFFFFCD, 0xFF0000,
           0x9C661F, 0x872657, 0xFFC0CB, 0xFF4500, 0xFF00FF, 0xFFFF00, 0x802A2A,
           0x0000FF, 0x03A89E, 0x00FFFF, 0x00FF00, 0xA020F0, 0x00FF7F, 0xDA70D6,
           0xDDA0DD]
+label_strings = ['ground', 'master_chef_can', 'cracker_box', 'sugar_box', 'tomato_soup_can',
+                 'mustard_bottle', 'tuna_fish_can', 'pudding_box', 'gelatin_box',
+                 'potted_meat_can', 'banana', 'pitcher_base', 'bleach_cleanser',
+                 'bowl', 'mug', 'power_drill', 'wood_block', 'scissors', 'large_marker',
+                 'large_clamp', 'extra_large_clamp', 'foam_brick']
 
 def projection(point, cx, cy, fx, fy):
     tx = point[0] * cam_scale
@@ -197,7 +205,7 @@ while 1:
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 trancolor = transforms.ColorJitter(0.2, 0.2, 0.2, 0.05)
-for now in range(0, 109):
+for now in range(0, 50):
     # 图片读取
     img = Image.open('{0}/{1}-color.png'.format(opt.dataset_root, testlist[now]))
     depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
@@ -212,9 +220,12 @@ for now in range(0, 109):
     _, seg_predicted = torch.max(seg_outputs, 1)
     label = seg_predicted.cpu().numpy().astype(np.int8)
     label = label.squeeze(0)        # 去除添加的维度
-    Image.fromarray(label, mode='L').save('img/%04d_pre_label.png' % now)
     lst = np.unique(label)      # 图片中有的类别
     lst = lst[lst.nonzero()]    # 去除0
+
+    label_img = Image.fromarray(label, mode='L')
+    drawObject = ImageDraw.Draw(label_img)
+    drawObject.ink = 255
 
     # posecnn_meta = scio.loadmat('{0}/results_PoseCNN_RSS2018/{1}.mat'.format(ycb_toolbox_dir, '%06d' % now))
     # label = np.array(posecnn_meta['labels'])
@@ -226,6 +237,8 @@ for now in range(0, 109):
     
     for idx in range(len(lst)):
         itemid = lst[idx]
+        # if itemid != 12:
+        #     continue
         try:
             # rmin, rmax, cmin, cmax = get_bbox(posecnn_rois)
             # bbox
@@ -234,7 +247,14 @@ for now in range(0, 109):
             rmax = item_index[0].max()
             cmin = item_index[1].min()
             cmax = item_index[1].max()
-            rmin, rmax, cmin, cmax = get_bbox(rmin, rmax, cmin, cmax)
+            # rmin, rmax, cmin, cmax = get_bbox(rmin, rmax, cmin, cmax)
+
+            # label画bounding box
+            drawObject.line([cmin, rmin, cmax, rmin])
+            drawObject.line([cmin, rmin, cmin, rmax])
+            drawObject.line([cmax, rmax, cmin, rmax])
+            drawObject.line([cmax, rmax, cmax, rmin])
+            drawObject.text([cmin, rmin], label_strings[itemid])
 
             mask_depth = ma.getmaskarray(ma.masked_not_equal(depth, 0))
             mask_label = ma.getmaskarray(ma.masked_equal(label, itemid))
@@ -324,7 +344,7 @@ for now in range(0, 109):
             my_r = quaternion_matrix(my_r)[:3, :3]
             pred = np.dot(cld[itemid], my_r.T) + my_t  # 旋转后的点云
 
-            if opt.save_processed_image:
+            if opt.save_processed_image and how_max.cpu().data > 0.05:
                 # 绘制模型的点在二维图上
                 for my_t in pred:
                     x, y = projection(my_t, cam_cx, cam_cy, cam_fx, cam_fy)
@@ -335,6 +355,7 @@ for now in range(0, 109):
             my_result_wo_refine.append([0.0 for i in range(7)])
             my_result.append([0.0 for i in range(7)])
 
+    label_img.save('img/%04d_pre_label.png' % now)
     output_img.save('img/%04d_projected_rgb.png' % now)
 
     scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
