@@ -205,7 +205,8 @@ while 1:
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 trancolor = transforms.ColorJitter(0.2, 0.2, 0.2, 0.05)
-for now in range(0, 10):
+# for now in range(0, 448):
+for now in range(0, 50):
     # 图片读取
     img = Image.open('{0}/{1}-color.png'.format(opt.dataset_root, testlist[now]))
     depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
@@ -264,13 +265,16 @@ for now in range(0, 10):
             mask = mask_label * mask_depth
 
             choose = mask[rmin:rmax, cmin:cmax].flatten().nonzero()[0]
-            if len(choose) > num_points:
-                c_mask = np.zeros(len(choose), dtype=int)
-                c_mask[:num_points] = 1
-                np.random.shuffle(c_mask)
-                choose = choose[c_mask.nonzero()]
-            elif len(choose) > 300:
-                choose = np.pad(choose, (0, num_points - len(choose)), 'wrap')
+            if len(choose) / ((rmax - rmin) * (cmax - cmin)) > 0.4:
+                if len(choose) > num_points:
+                    c_mask = np.zeros(len(choose), dtype=int)
+                    c_mask[:num_points] = 1
+                    np.random.shuffle(c_mask)
+                    choose = choose[c_mask.nonzero()]
+                elif len(choose) > 300:
+                    choose = np.pad(choose, (0, num_points - len(choose)), 'wrap')
+                else:
+                    continue
             else:
                 continue
 
