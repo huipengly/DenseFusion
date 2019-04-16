@@ -22,7 +22,7 @@ class XtionPro(object):
             return
         self.depth_stream = self.dev.create_depth_stream()
         self.color_stream = self.dev.create_color_stream()
-        self.depth_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_1_MM,
+        self.depth_stream.set_video_mode(c_api.OniVideoMode(pixelFormat=c_api.OniPixelFormat.ONI_PIXEL_FORMAT_DEPTH_100_UM,
                                                        resolutionX=self.width,
                                                        resolutionY=self.height,
                                                        fps=self.fps))
@@ -32,10 +32,11 @@ class XtionPro(object):
                                                        fps=self.fps))
         self.dev.set_image_registration_mode(True)
         self.dev.set_depth_color_sync_enabled(True)
-        self.depth_stream.set_mirroring_enabled(True)
-        self.color_stream.set_mirroring_enabled(True)
         self.depth_stream.start()
         self.color_stream.start()
+        # 设置镜像方式无效，使用numpy自带函数去翻转了
+        # self.depth_stream.set_mirroring_enabled(True)
+        # self.color_stream.set_mirroring_enabled(True)
 
     def __del__(self):
         self.depth_stream.close()
@@ -44,12 +45,12 @@ class XtionPro(object):
         print("xtion closed")
 
     def depth_data(self):
-        return np.frombuffer(self.depth_stream.read_frame().get_buffer_as_triplet(), dtype='uint16',
-                             count=self.width*self.height).reshape([self.height, self.width])
+        return np.fliplr(np.frombuffer(self.depth_stream.read_frame().get_buffer_as_triplet(), dtype='uint16',
+                                       count=self.width*self.height).reshape([self.height, self.width]))
 
     def color_data(self):
-        return np.frombuffer(self.color_stream.read_frame().get_buffer_as_triplet(), dtype='uint8',
-                             count=self.width*self.height*3).reshape([self.height, self.width, 3])
+        return np.fliplr(np.frombuffer(self.color_stream.read_frame().get_buffer_as_triplet(), dtype='uint8',
+                                       count=self.width*self.height*3).reshape([self.height, self.width, 3]))
 
 
 def main():
