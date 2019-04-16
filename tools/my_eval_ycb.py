@@ -25,6 +25,8 @@ from lib.network import PoseNet, PoseRefineNet
 from lib.transformations import euler_matrix, quaternion_matrix, quaternion_from_matrix
 from vanilla_segmentation.segnet import SegNet as segnet
 from PIL import ImageDraw
+from XtionPro import XtionPro
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
@@ -33,6 +35,19 @@ parser.add_argument('--refine_model', type=str, default = '',  help='resume Pose
 parser.add_argument('--seg_model', type=str, default = '',  help='resume SegNet model')
 parser.add_argument('--save_processed_image', type=bool, default = False,  help='Save image with model points')
 opt = parser.parse_args()
+
+xtion = XtionPro()
+plt.ion()
+# for i in range(100):
+#     color_data = xtion.color_data()
+#     depth_data = xtion.depth_data()
+#     plt.subplot(1, 2, 1)
+#     plt.imshow(depth_data, cmap='gray')
+#     plt.subplot(1, 2, 2)
+#     plt.imshow(color_data)
+#     plt.show()
+#     plt.pause(0.0333)
+
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 border_list = [-1, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600, 640, 680]
@@ -205,15 +220,25 @@ while 1:
     class_id += 1
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+now = 0
 # for now in range(0, 448):
-for now in range(0, 50):
+# for now in range(0, 50):
+while True:
     # 图片读取
-    img = Image.open('{0}/{1}-color.png'.format(opt.dataset_root, testlist[now]))
-    depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
+    # img = Image.open('{0}/{1}-color.png'.format(opt.dataset_root, testlist[now]))
+    color_data = xtion.color_data()
+    img = Image.fromarray(color_data)
+    img.save("test.png")
+    # depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
+    depth = xtion.depth_data()
+    Image.fromarray(depth, mode='L').save('img/%04d_depth.png' % now)
+    # plt.imshow(depth, cmap='gray')
+    # plt.show()
     output_img = copy.deepcopy(img)     # 投影过后的图片
 
     # 语义分割
-    rgb = np.array(img.convert("RGB"))
+    rgb = color_data
+    # rgb = np.array(img.convert("RGB"))
     rgb = np.transpose(rgb, (2, 0, 1))
     rgb = norm(torch.from_numpy(rgb.astype(np.float32)))
     rgb = Variable(rgb.unsqueeze(0)).cuda()     # segnet是按batch处理的，所以添加一个维度
@@ -242,7 +267,7 @@ for now in range(0, 50):
     # lst = posecnn_rois[:, 1:2].flatten()
     my_result_wo_refine = []
     my_result = []
-    
+
     for idx in range(len(lst)):
         itemid = lst[idx]
         # if itemid != 12:
@@ -328,7 +353,7 @@ for now in range(0, 50):
                 my_mat = quaternion_matrix(my_r)
                 R = Variable(torch.from_numpy(my_mat[:3, :3].astype(np.float32))).cuda().view(1, 3, 3)
                 my_mat[0:3, 3] = my_t
-                
+
                 new_cloud = torch.bmm((cloud - T), R).contiguous()
                 pred_r, pred_t = refiner(new_cloud, emb, index)
                 pred_r = pred_r.view(1, 1, -1)
@@ -380,6 +405,14 @@ for now in range(0, 50):
     # output_img.save('img/%04d_projected_rgb_conf.png' % now)
     output_img.save('img/%04d_projected_rgb_conf_percent.png' % now)
 
+    plt.subplot(1, 2, 1)
+    plt.imshow(label_img, cmap='gray')
+    plt.subplot(1, 2, 2)
+    plt.imshow(output_img)
+    plt.show()
+    plt.pause(0.0333)
+
     scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
     scio.savemat('{0}/{1}.mat'.format(result_refine_dir, '%04d' % now), {'poses':my_result})
     print("Finish No.{0} keyframe".format(now))
+    now += 1
