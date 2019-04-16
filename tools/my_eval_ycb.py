@@ -27,6 +27,9 @@ from vanilla_segmentation.segnet import SegNet as segnet
 from PIL import ImageDraw
 from XtionPro import XtionPro
 import matplotlib.pyplot as plt
+import cv2
+import lcm
+from scipy import ndimage
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
@@ -38,16 +41,6 @@ opt = parser.parse_args()
 
 xtion = XtionPro()
 plt.ion()
-# for i in range(100):
-#     color_data = xtion.color_data()
-#     depth_data = xtion.depth_data()
-#     plt.subplot(1, 2, 1)
-#     plt.imshow(depth_data, cmap='gray')
-#     plt.subplot(1, 2, 2)
-#     plt.imshow(color_data)
-#     plt.show()
-#     plt.pause(0.0333)
-
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 border_list = [-1, 40, 80, 120, 160, 200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600, 640, 680]
@@ -226,14 +219,11 @@ now = 0
 while True:
     # 图片读取
     # img = Image.open('{0}/{1}-color.png'.format(opt.dataset_root, testlist[now]))
+    # depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
     color_data = xtion.color_data()
     img = Image.fromarray(color_data)
-    img.save("test.png")
-    # depth = np.array(Image.open('{0}/{1}-depth.png'.format(opt.dataset_root, testlist[now])))
     depth = xtion.depth_data()
-    Image.fromarray(depth, mode='L').save('img/%04d_depth.png' % now)
-    # plt.imshow(depth, cmap='gray')
-    # plt.show()
+
     output_img = copy.deepcopy(img)     # 投影过后的图片
 
     # 语义分割
@@ -246,10 +236,12 @@ while True:
     # _, seg_predicted = torch.max(seg_outputs, 1)
     seg_softmax_out = F.softmax(seg_outputs, dim=1)    # softmax求概率，下面求出最大的概率，就是label。最大概率低于60%的认为是ground
     seg_value, seg_predicted = torch.max(seg_softmax_out, 1)
-    seg_predicted[torch.lt(seg_value, 0.6)] = 0
+    seg_predicted[torch.lt(seg_value, 0.8)] = 0
 
-    label = seg_predicted.numpy().astype(np.int8)
+    label = seg_predicted.numpy().astype(np.uint8)
     label = label.squeeze(0)        # 去除添加的维度
+    label = cv2.morphologyEx(label, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    label = cv2.morphologyEx(label, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
     lst = np.unique(label)      # 图片中有的类别
     lst = lst[lst.nonzero()]    # 去除0
 
@@ -270,17 +262,20 @@ while True:
 
     for idx in range(len(lst)):
         itemid = lst[idx]
-        # if itemid != 12:
-        #     continue
-        try:
-            # rmin, rmax, cmin, cmax = get_bbox(posecnn_rois)
-            # bbox
-            item_index = np.where(label == itemid)   # 类别像素索引
-            rmin = item_index[0].min()
-            rmax = item_index[0].max()
-            cmin = item_index[1].min()
-            cmax = item_index[1].max()
-            # rmin, rmax, cmin, cmax = get_bbox(rmin, rmax, cmin, cmax)
+        # mask当前类别
+        label_binary = ma.getmaskarray(ma.masked_equal(label, itemid))
+        # Label objects
+        labeled_image, num_features = ndimage.label(label_binary)
+        # 同类划分多个目标
+        objs = ndimage.find_objects(labeled_image)
+        for ob in objs:
+            cmin = ob[1].start
+            cmax = ob[1].stop
+            rmin = ob[0].start
+            rmax = ob[0].stop
+            # 小区域忽略
+            if (cmax - cmin) * (rmax - rmin) < 200:
+                continue
 
             # label画bounding box
             drawObject_label.line([cmin, rmin, cmax, rmin])
@@ -381,7 +376,7 @@ while True:
             my_r = quaternion_matrix(my_r)[:3, :3]
             pred = np.dot(cld[itemid], my_r.T) + my_t  # 旋转后的点云
 
-            if opt.save_processed_image and how_max.cpu().data > 0.1:
+            if opt.save_processed_image and how_max.cpu().data > 0.3:
             # if opt.save_processed_image:
                 drawObject_point.text([cmin, rmin], label_strings[itemid] + ' : ' + str(how_max.cpu().data.numpy())
                                       , fill=colors[itemid])
@@ -394,16 +389,12 @@ while True:
                     x, y = projection(my_t, cam_cx, cam_cy, cam_fx, cam_fy)
                     output_img.putpixel((x, y), colors[int(itemid)])
 
-        except ZeroDivisionError:
-            print("PoseCNN Detector Lost {0} at No.{1} keyframe".format(itemid, now))
-            my_result_wo_refine.append([0.0 for i in range(7)])
-            my_result.append([0.0 for i in range(7)])
 
-    # label_img.save('img/%04d_pre_label.png' % now)
-    label_img.save('img/%04d_pre_label_softmax.png' % now)
-    # output_img.save('img/%04d_projected_rgb.png' % now)
+    label_img.save('img/%04d_pre_label.png' % now)
+    # label_img.save('img/%04d_pre_label_softmax_no.png' % now)
+    output_img.save('img/%04d_projected_rgb.png' % now)
     # output_img.save('img/%04d_projected_rgb_conf.png' % now)
-    output_img.save('img/%04d_projected_rgb_conf_percent.png' % now)
+    # output_img.save('img/%04d_projected_rgb_conf_percent_no.png' % now)
 
     plt.subplot(1, 2, 1)
     plt.imshow(label_img, cmap='gray')
