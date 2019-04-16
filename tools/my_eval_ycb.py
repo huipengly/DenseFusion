@@ -28,8 +28,9 @@ from PIL import ImageDraw
 from XtionPro import XtionPro
 import matplotlib.pyplot as plt
 import cv2
-import lcm
 from scipy import ndimage
+import lcm
+from pose_and_cls_t import pose_and_cls_t
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
@@ -39,6 +40,7 @@ parser.add_argument('--seg_model', type=str, default = '',  help='resume SegNet 
 parser.add_argument('--save_processed_image', type=bool, default = False,  help='Save image with model points')
 opt = parser.parse_args()
 
+msg = pose_and_cls_t()
 xtion = XtionPro()
 plt.ion()
 
@@ -213,7 +215,7 @@ while 1:
     class_id += 1
 
 norm = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-now = 0
+timestamp = 0
 # for now in range(0, 448):
 # for now in range(0, 50):
 while True:
@@ -257,8 +259,8 @@ while True:
     # posecnn_rois = np.array(posecnn_meta['rois'])
 
     # lst = posecnn_rois[:, 1:2].flatten()
-    my_result_wo_refine = []
-    my_result = []
+    # my_result_wo_refine = []
+    # my_result = []
 
     for idx in range(len(lst)):
         itemid = lst[idx]
@@ -341,7 +343,7 @@ while True:
             my_r = pred_r[0][which_max[0]].view(-1).cpu().data.numpy()
             my_t = (points + pred_t)[which_max[0]].view(-1).cpu().data.numpy()
             my_pred = np.append(my_r, my_t)
-            my_result_wo_refine.append(my_pred.tolist())
+            # my_result_wo_refine.append(my_pred.tolist())
 
             for ite in range(0, iteration):
                 T = Variable(torch.from_numpy(my_t.astype(np.float32))).cuda().view(1, 3).repeat(num_points, 1).contiguous().view(1, num_points, 3)
@@ -371,7 +373,14 @@ while True:
 
             # Here 'my_pred' is the final pose estimation result after refinement ('my_r': quaternion, 'my_t': translation)
 
-            my_result.append(my_pred.tolist())
+            # my_result.append(my_pred.tolist())
+            msg.timestamp = timestamp
+            msg.position = my_t
+            msg.orientation = my_r
+            msg.name = label_strings[itemid]
+
+            lc = lcm.LCM()
+            lc.publish("DenseFusion", msg.encode())
 
             my_r = quaternion_matrix(my_r)[:3, :3]
             pred = np.dot(cld[itemid], my_r.T) + my_t  # 旋转后的点云
@@ -390,9 +399,9 @@ while True:
                     output_img.putpixel((x, y), colors[int(itemid)])
 
 
-    label_img.save('img/%04d_pre_label.png' % now)
+    label_img.save('img/%04d_pre_label.png' % timestamp)
     # label_img.save('img/%04d_pre_label_softmax_no.png' % now)
-    output_img.save('img/%04d_projected_rgb.png' % now)
+    output_img.save('img/%04d_projected_rgb.png' % timestamp)
     # output_img.save('img/%04d_projected_rgb_conf.png' % now)
     # output_img.save('img/%04d_projected_rgb_conf_percent_no.png' % now)
 
@@ -403,7 +412,7 @@ while True:
     plt.show()
     plt.pause(0.0333)
 
-    scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
-    scio.savemat('{0}/{1}.mat'.format(result_refine_dir, '%04d' % now), {'poses':my_result})
-    print("Finish No.{0} keyframe".format(now))
-    now += 1
+    # scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % timestamp), {'poses':my_result_wo_refine})
+    # scio.savemat('{0}/{1}.mat'.format(result_refine_dir, '%04d' % timestamp), {'poses':my_result})
+    print("Finish No.{0} keyframe".format(timestamp))
+    timestamp += 1
