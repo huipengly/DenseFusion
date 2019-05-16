@@ -15,6 +15,11 @@ import numpy as np
 import pdb
 import torch.nn.functional as F
 from lib.pspnet import PSPNet
+from lib.Timer import Timer
+
+timer_color_feature = Timer()
+timer_feat = Timer()
+timer_pose = Timer()
 
 psp_models = {
     'resnet18': lambda: PSPNet(sizes=(1, 2, 3, 6), psp_size=512, deep_features_size=256, backend='resnet18'),
@@ -93,7 +98,9 @@ class PoseNet(nn.Module):
         self.num_obj = num_obj
 
     def forward(self, img, x, choose, obj):
+        timer_color_feature.tic()
         out_img = self.cnn(img)
+        color_time = timer_color_feature.toc()
         
         bs, di, _, _ = out_img.size()
 
@@ -102,8 +109,11 @@ class PoseNet(nn.Module):
         emb = torch.gather(emb, 2, choose).contiguous()
         
         x = x.transpose(2, 1).contiguous()
+        timer_feat.tic()
         ap_x = self.feat(x, emb)
+        feat_time = timer_feat.toc()
 
+        timer_pose.tic()
         rx = F.relu(self.conv1_r(ap_x))
         tx = F.relu(self.conv1_t(ap_x))
         cx = F.relu(self.conv1_c(ap_x))      
@@ -119,6 +129,7 @@ class PoseNet(nn.Module):
         rx = self.conv4_r(rx).view(bs, self.num_obj, 4, self.num_points)
         tx = self.conv4_t(tx).view(bs, self.num_obj, 3, self.num_points)
         cx = torch.sigmoid(self.conv4_c(cx)).view(bs, self.num_obj, 1, self.num_points)
+        pose_time = timer_pose.toc()
         
         b = 0
         out_rx = torch.index_select(rx[b], 0, obj[b])
@@ -129,7 +140,7 @@ class PoseNet(nn.Module):
         out_cx = out_cx.contiguous().transpose(2, 1).contiguous()
         out_tx = out_tx.contiguous().transpose(2, 1).contiguous()
         
-        return out_rx, out_tx, out_cx, emb.detach()
+        return out_rx, out_tx, out_cx, emb.detach(), color_time, feat_time, pose_time
  
 
 

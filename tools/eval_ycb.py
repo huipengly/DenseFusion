@@ -23,6 +23,48 @@ from torch.autograd import Variable
 from datasets.ycb.dataset import PoseDataset
 from lib.network import PoseNet, PoseRefineNet
 from lib.transformations import euler_matrix, quaternion_matrix, quaternion_from_matrix
+from lib.Timer import Timer as Timer
+import csv
+
+timer_densefusion_forward = Timer()
+timer_refine = Timer()
+
+# time_list_densefusion_forward = []
+# time_list_color_feature = []
+# time_list_feat = []
+# time_list_pose = []
+# time_list_refine1 = []
+# time_list_refine2 = []
+# size_list = []
+w = 0
+h = 0
+pixel = 0
+densefusion_time = 0
+color_time = 0
+feat_time = 0
+pose_time = 0
+refine1_time = 0
+refine2_time = 0
+
+bbox_number = 0
+pixel_sum = 0
+densefusion_time_sum = 0
+color_time_sum = 0
+feat_time_sum = 0
+pose_time_sum = 0
+refine1_time_sum = 0
+refine2_time_sum = 0
+
+refine1 = True
+
+with open('single_picture.csv', 'w') as f:
+    header = ['bbox_size', 'pixel', 'densefusion', 'color', 'feat', 'pose', 'refine1', 'refine2']
+    f_csv = csv.writer(f)
+    f_csv.writerow(header)
+with open('single_bbox.csv', 'w') as f:
+    header = ['w', 'h', 'pixel', 'densefusion', 'color', 'feat', 'pose', 'refine1', 'refine2']
+    f_csv = csv.writer(f)
+    f_csv.writerow(header)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset_root', type=str, default = '', help='dataset root dir')
@@ -143,11 +185,15 @@ for now in range(0, 2949):
     lst = posecnn_rois[:, 1:2].flatten()
     my_result_wo_refine = []
     my_result = []
+    bbox_number = len(lst)
     
     for idx in range(len(lst)):
         itemid = lst[idx]
         try:
             rmin, rmax, cmin, cmax = get_bbox(posecnn_rois)
+            w = rmax - rmin
+            h = cmax - cmin
+            pixel = w * h
 
             mask_depth = ma.getmaskarray(ma.masked_not_equal(depth, 0))
             mask_label = ma.getmaskarray(ma.masked_equal(label, itemid))
@@ -189,7 +235,9 @@ for now in range(0, 2949):
             cloud = cloud.view(1, num_points, 3)
             img_masked = img_masked.view(1, 3, img_masked.size()[1], img_masked.size()[2])
 
-            pred_r, pred_t, pred_c, emb = estimator(img_masked, cloud, choose, index)
+            timer_densefusion_forward.tic()
+            pred_r, pred_t, pred_c, emb, color_time, feat_time, pose_time = estimator(img_masked, cloud, choose, index)
+            densefusion_time = timer_densefusion_forward.toc()
             pred_r = pred_r / torch.norm(pred_r, dim=2).view(1, num_points, 1)
 
             pred_c = pred_c.view(bs, num_points)
@@ -203,6 +251,7 @@ for now in range(0, 2949):
             my_result_wo_refine.append(my_pred.tolist())
 
             for ite in range(0, iteration):
+                timer_refine.tic()
                 T = Variable(torch.from_numpy(my_t.astype(np.float32))).cuda().view(1, 3).repeat(num_points, 1).contiguous().view(1, num_points, 3)
                 my_mat = quaternion_matrix(my_r)
                 R = Variable(torch.from_numpy(my_mat[:3, :3].astype(np.float32))).cuda().view(1, 3, 3)
@@ -227,15 +276,44 @@ for now in range(0, 2949):
                 my_pred = np.append(my_r_final, my_t_final)
                 my_r = my_r_final
                 my_t = my_t_final
+                if refine1:
+                    refine1_time = timer_refine.toc()
+                    refine1 = False
+                else:
+                    refine2_time = timer_refine.toc()
+                    refine1 = True
 
             # Here 'my_pred' is the final pose estimation result after refinement ('my_r': quaternion, 'my_t': translation)
 
             my_result.append(my_pred.tolist())
+            with open('single_bbox.csv', 'a') as f:
+                f_csv = csv.writer(f)
+                f_csv.writerow(
+                    [w, h, pixel, densefusion_time, color_time, feat_time, pose_time, refine1_time, refine2_time])
+                pixel_sum += pixel
+                densefusion_time_sum += densefusion_time
+                color_time_sum += color_time
+                feat_time_sum += feat_time
+                pose_time_sum += pose_time
+                refine1_time_sum += refine1_time
+                refine2_time_sum += refine2_time
+
         except ZeroDivisionError:
             print("PoseCNN Detector Lost {0} at No.{1} keyframe".format(itemid, now))
             my_result_wo_refine.append([0.0 for i in range(7)])
             my_result.append([0.0 for i in range(7)])
 
+    with open('single_picture.csv', 'a') as f:
+        f_csv = csv.writer(f)
+        f_csv.writerow([bbox_number, pixel_sum, densefusion_time_sum, color_time_sum, feat_time_sum, pose_time_sum, refine1_time_sum, refine2_time_sum])
+        bbox_number = 0
+        pixel_sum = 0
+        densefusion_time_sum = 0
+        color_time_sum = 0
+        feat_time_sum = 0
+        pose_time_sum = 0
+        refine1_time_sum = 0
+        refine2_time_sum = 0
     scio.savemat('{0}/{1}.mat'.format(result_wo_refine_dir, '%04d' % now), {'poses':my_result_wo_refine})
     scio.savemat('{0}/{1}.mat'.format(result_refine_dir, '%04d' % now), {'poses':my_result})
     print("Finish No.{0} keyframe".format(now))
